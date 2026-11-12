@@ -36,7 +36,15 @@
 
 ## Install
 
-MacPing isn't released yet. Until it is, you can [build it from source](#build-from-source).
+With [Homebrew](https://brew.sh):
+
+```
+brew tap RossNicholson/tap
+brew trust --cask rossnicholson/tap/macping
+brew install --cask macping
+```
+
+Or download the DMG from the [latest release](https://github.com/RossNicholson/macping/releases/latest). Needs macOS 14 or later. MacPing updates itself (Settings → Check for updates).
 
 ## Features
 

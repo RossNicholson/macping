@@ -52,5 +52,5 @@ alerts. Left out on purpose: vmPing's packet generator / flood tester.
   window), hover-only tile buttons (now ⋯ + right-click menu), repeated error lines (now ×N), and more.
   Not tested live: notifications (Focus was on), open at login (would register the dev build),
   drag to reorder (see Gotchas). Not released; nothing on rossnicholson.dev until it's finished.
-- To release: Ross sets the CI secrets, add the `macping` cask, then HouseStyle MoreApps + BrewDock
-  Discover + site page.
+- **1.0.0 RELEASED 2026-11-12** (CI notarized, cask `macping` in the tap, release notes written).
+  Next: HouseStyle MoreApps + BrewDock Discover + rossnicholson.dev page.
