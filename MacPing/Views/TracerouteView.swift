@@ -155,7 +155,12 @@ struct TracerouteView: View {
         .background(AppColors.ground)
         .ignoresSafeArea(.container, edges: .top)
         .onAppear {
-            if session.host.isEmpty { fieldFocused = true } else if session.hops.isEmpty { session.start() }
+            if session.host.isEmpty {
+                // The window has to be key before the field can take focus
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { fieldFocused = true }
+            } else if session.hops.isEmpty {
+                session.start()
+            }
         }
         .onDisappear { session.stop() }
     }

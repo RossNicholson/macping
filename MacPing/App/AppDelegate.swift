@@ -103,8 +103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                  size: NSSize(width: 560, height: 560),
                                  content: TracerouteView(session: session))
         window.delegate = self
-        if let anchor = tracerouteWindows.last ?? self.window {
-            window.setFrameTopLeftPoint(NSPoint(x: anchor.frame.minX + 30, y: anchor.frame.maxY - 30))
+        // Beside the main window if there's room, else centred; more cascade from there
+        if let last = tracerouteWindows.last {
+            window.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 28, y: last.frame.maxY - 28))
+        } else if let main = self.window, main.isVisible, let screen = main.screen?.visibleFrame,
+                  main.frame.maxX + 12 + window.frame.width <= screen.maxX {
+            window.setFrameTopLeftPoint(NSPoint(x: main.frame.maxX + 12, y: main.frame.maxY))
         } else {
             window.center()
         }
