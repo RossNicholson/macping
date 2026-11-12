@@ -92,7 +92,9 @@ make build   # or: make test
 
 ## Credits
 
-The idea, and the set of features, come from [vmPing](https://github.com/r-smith/vmPing), a Windows app by r-smith. MacPing is a separate app written from scratch for the Mac. It uses [Barlow Condensed](https://github.com/jpt/barlow) and [Geist Mono](https://github.com/vercel/geist-font), both under the SIL Open Font Licence.
+The idea, and the set of features, come from [vmPing](https://github.com/r-smith/vmPing), a Windows app by r-smith. MacPing is a separate app written from scratch for the Mac.
+
+The look comes from [HouseStyle](https://github.com/RossNicholson/mac-house-style), shared with my other Mac apps: [BrewDock](https://github.com/RossNicholson/brewdock), [ClawdBar](https://github.com/RossNicholson/clawdbar), [Mop Up](https://github.com/RossNicholson/mop-up), [KeyBar](https://github.com/RossNicholson/keybar) and [Repo Radar](https://github.com/RossNicholson/reporadar). It uses [Barlow Condensed](https://github.com/jpt/barlow) and [Geist Mono](https://github.com/vercel/geist-font), both under the SIL Open Font Licence.
 
 ## Licence
 
