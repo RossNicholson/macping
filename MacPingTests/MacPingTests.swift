@@ -56,6 +56,10 @@ final class ICMPTests: XCTestCase {
         // Someone else's ping, or an old sequence number
         XCTAssertNil(ICMPSocket.match(reply, v6: false, identifier: 0x9999, sequence: 7, ms: 5, from: "x"))
         XCTAssertNil(ICMPSocket.match(reply, v6: false, identifier: 0x1234, sequence: 8, ms: 5, from: "x"))
+        // From some other host than the one pinged: someone else's ping
+        XCTAssertNil(ICMPSocket.match(reply, v6: false, identifier: 0x1234, sequence: 7, ms: 5, from: "8.8.8.8", destination: "1.1.1.1"))
+        XCTAssertNotNil(ICMPSocket.match(reply, v6: false, identifier: 0x1234, sequence: 7, ms: 5, from: "1.1.1.1", destination: "1.1.1.1"))
+        XCTAssertEqual(Set((0..<500).map { _ in ICMPSocket.nextIdentifier() }).count, 500)
     }
 
     func testMatchesTimeExceeded() {
@@ -179,10 +183,37 @@ final class MonitorTests: XCTestCase {
 
     func testCommandLineHostsWin() {
         let monitor = makeMonitor()
-        monitor.restore(arguments: ["-NSDocumentRevisionsDebugMode", "YES", "10.0.0.9"])
-        // "YES" parses as a host name too; only flags are skipped
-        XCTAssertEqual(monitor.probes.map(\.input), ["YES", "10.0.0.9"])
+        monitor.restore(arguments: ["-NSDocumentRevisionsDebugMode", "YES", "10.0.0.9", "-psn_0_123", "example.com:443"])
+        // A flag's value isn't a host
+        XCTAssertEqual(monitor.probes.map(\.input), ["10.0.0.9", "example.com:443"])
         monitor.stopAll()
+    }
+
+    func testLastHostsSurviveARestart() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("MacPing-\(UUID().uuidString)/Library.json")
+        let defaults = UserDefaults(suiteName: "MacPingTests-\(UUID().uuidString)")!
+        let first = Monitor(settings: AppSettings(defaults: defaults), libraryURL: url)
+        first.replaceAll(with: ["10.0.0.1", "example.com:443"], start: false)
+        first.columns = 2
+        first.settings.startup = .lastSession
+
+        let second = Monitor(settings: AppSettings(defaults: defaults), libraryURL: url)
+        second.restore(arguments: [])
+        XCTAssertEqual(second.probes.map(\.input), ["10.0.0.1", "example.com:443"])
+        XCTAssertEqual(second.columns, 2)
+        second.stopAll()
+        XCTAssertEqual(Library.load(from: url).lastHosts, ["10.0.0.1", "example.com:443"])
+    }
+
+    func testBackUpAfterDownThenIndeterminate() {
+        let monitor = makeMonitor()
+        monitor.addDemoProbe(Probe(input: "10.0.0.1:22"))
+        let probe = monitor.probes[0]
+        probe.apply(.refused(ms: 1), downAfter: 3)
+        probe.apply(.timedOut, downAfter: 3)
+        XCTAssertEqual(probe.status, .indeterminate)
+        probe.apply(.reply(ms: 1, from: "10.0.0.1", ttl: nil, bytes: 0), downAfter: 3)
+        XCTAssertEqual(monitor.history.map(\.kind), [.down, .up])
     }
 }
 

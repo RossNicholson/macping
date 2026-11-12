@@ -103,12 +103,27 @@ final class ICMPSocket {
     /// ICMP socket sees every reply) are ignored
     let identifier: UInt16
 
-    init(family: Int32, identifier: UInt16 = UInt16.random(in: 1...UInt16.max)) throws(PingError) {
+    init(family: Int32, identifier: UInt16 = ICMPSocket.nextIdentifier()) throws(PingError) {
         self.family = family
         self.identifier = identifier
         let proto = family == AF_INET6 ? IPPROTO_ICMPV6 : IPPROTO_ICMP
         fd = socket(family, SOCK_DGRAM, proto)
         guard fd >= 0 else { throw .socket(errno) }
+        // Room for everyone else's replies between pings, with many monitors
+        var size: Int32 = 256 * 1024
+        setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+    }
+
+    private static let identifierLock = NSLock()
+    nonisolated(unsafe) private static var lastIdentifier = UInt16.random(in: 1...UInt16.max)
+
+    /// A different identifier for each socket, so no two monitors take each
+    /// other's replies. Starts at random to keep clear of other apps.
+    static func nextIdentifier() -> UInt16 {
+        identifierLock.withLock {
+            lastIdentifier = lastIdentifier == .max ? 1 : lastIdentifier + 1
+            return lastIdentifier
+        }
     }
 
     deinit { close(fd) }
@@ -122,6 +137,10 @@ final class ICMPSocket {
         } else {
             setsockopt(fd, IPPROTO_IP, IP_TTL, &hops, socklen_t(MemoryLayout<Int32>.size))
         }
+
+        // Throw away what came in since the last ping: other monitors' replies
+        var buffer = [UInt8](repeating: 0, count: 2048)
+        while recv(fd, &buffer, buffer.count, MSG_DONTWAIT) > 0 {}
 
         let packet = Self.echoRequest(v6: family == AF_INET6, identifier: identifier,
                                       sequence: sequence, payloadSize: payloadSize)
@@ -137,13 +156,16 @@ final class ICMPSocket {
         guard sent == packet.count else { return .failed(String(cString: strerror(errno))) }
 
         let deadline = start.uptimeNanoseconds + UInt64(timeout * 1_000_000_000)
-        var buffer = [UInt8](repeating: 0, count: 2048)
+        let destination = address.text
         while true {
             let now = DispatchTime.now().uptimeNanoseconds
             guard now < deadline else { return .timedOut }
             var wait = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
             let ready = poll(&wait, 1, Int32(max(1, (deadline - now) / 1_000_000)))
-            if ready < 0 && errno == EINTR { continue }
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return .failed(String(cString: strerror(errno)))
+            }
             guard ready > 0 else { return .timedOut }
 
             var from = sockaddr_storage()
@@ -153,12 +175,15 @@ final class ICMPSocket {
                     recvfrom(fd, &buffer, buffer.count, 0, $0, &fromLength)
                 }
             }
-            guard count > 0 else { continue }
+            guard count > 0 else {
+                if count < 0, errno != EINTR, errno != EAGAIN { return .failed(String(cString: strerror(errno))) }
+                continue
+            }
             let ms = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
             let sender = Address(storage: from, length: fromLength).text
             let message = Array(buffer[0..<count])
             if let reply = Self.match(message, v6: family == AF_INET6, identifier: identifier,
-                                      sequence: sequence, ms: ms, from: sender) {
+                                      sequence: sequence, ms: ms, from: sender, destination: destination) {
                 return reply
             }
         }
@@ -198,7 +223,7 @@ final class ICMPSocket {
     /// header. Errors from routers quote the start of our request, which
     /// is how they're matched.
     static func match(_ message: [UInt8], v6: Bool, identifier: UInt16, sequence: UInt16,
-                      ms: Double, from: String) -> PingReply? {
+                      ms: Double, from: String, destination: String? = nil) -> PingReply? {
         var icmp = message[...]
         var ttl: Int?
         if !v6 {
@@ -221,7 +246,9 @@ final class ICMPSocket {
 
         let echoReply: UInt8 = v6 ? 129 : 0
         if type == echoReply {
-            return ours(icmp) ? .reply(ms: ms, from: from, ttl: ttl, bytes: icmp.count) : nil
+            // Only the host pinged can answer it: Terminal's ping could share the identifier
+            guard ours(icmp), destination == nil || destination == from else { return nil }
+            return .reply(ms: ms, from: from, ttl: ttl, bytes: icmp.count)
         }
 
         // Time exceeded or destination unreachable: they quote our request

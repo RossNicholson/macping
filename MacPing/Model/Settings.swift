@@ -15,7 +15,7 @@ enum StartupMode: String, CaseIterable, Sendable {
         switch self {
         case .blank: return "Blank"
         case .lastSession: return "Last hosts"
-        case .favorite: return "A favourite"
+        case .favorite: return "Favourite"
         }
     }
 }

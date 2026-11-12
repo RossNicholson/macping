@@ -243,6 +243,7 @@ struct AliasesSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var host = ""
     @State private var name = ""
+    @FocusState private var hostFocused: Bool
 
     var body: some View {
         SheetChrome(title: "Aliases",
@@ -251,6 +252,7 @@ struct AliasesSheet: View {
                 HStack(spacing: 8) {
                     TextField("Host", text: $host)
                         .textFieldStyle(.roundedBorder)
+                        .focused($hostFocused)
                     TextField("Name", text: $name)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(add)
@@ -300,6 +302,7 @@ struct AliasesSheet: View {
         monitor.setAlias(name, for: Target(parsing: host)?.host ?? host)
         host = ""
         name = ""
+        hostFocused = true
     }
 }
 
@@ -320,6 +323,8 @@ struct AboutSheet: View {
             }
             .padding([.horizontal, .bottom], 18)
         }
+        // As wide as the about card; the Done row's spacer would stretch it
+        .fixedSize()
         .background(AppColors.ground)
     }
 }

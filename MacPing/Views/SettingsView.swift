@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-struct SettingsSheet: View {
+/// Settings, in a window of their own
+struct SettingsView: View {
     @Environment(Monitor.self) private var monitor
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         @Bindable var settings = monitor.settings
@@ -19,10 +19,9 @@ struct SettingsSheet: View {
                 }
                 .foregroundStyle(AppColors.text)
                 Spacer()
-                PillButton(title: "Done", symbol: "checkmark") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
             }
             .padding(20)
+            .padding(.top, 20)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
@@ -128,11 +127,13 @@ struct SettingsSheet: View {
                     }
                     UpdateBlock(updater: monitor.updater, app: .macPing)
                 }
-                .padding([.horizontal, .bottom], 20)
+                .padding(.horizontal, 20)
             }
+            .contentMargins(.bottom, 24, for: .scrollContent)
         }
-        .frame(width: 560, height: 640)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 360, idealHeight: 680)
         .background(AppColors.ground)
+        .ignoresSafeArea(.container, edges: .top)
         .onChange(of: settings.interval) { monitor.applyOptions() }
         .onChange(of: settings.timeout) { monitor.applyOptions() }
         .onChange(of: settings.ttl) { monitor.applyOptions() }

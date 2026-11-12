@@ -90,6 +90,9 @@ final class Monitor {
 
     /// Replaces every tile with these hosts
     func replaceAll(with hosts: [String], start: Bool = true) {
+        for probe in probes where probe.isRunning {
+            if let target = probe.target { record(.stop, for: target) }
+        }
         probes.forEach { $0.stop(record: false) }
         probes.removeAll()
         hosts.forEach { add($0, start: start) }
@@ -109,6 +112,15 @@ final class Monitor {
         probes.remove(at: from)
         let to = probes.firstIndex(where: { $0.id == other.id }) ?? probes.count
         probes.insert(probe, at: to)
+        saveSession()
+    }
+
+    /// One place earlier (-1) or later (1)
+    func move(_ probe: Probe, by offset: Int) {
+        guard let from = probes.firstIndex(where: { $0.id == probe.id }) else { return }
+        let to = from + offset
+        guard probes.indices.contains(to) else { return }
+        probes.swapAt(from, to)
         saveSession()
     }
 
@@ -152,6 +164,12 @@ final class Monitor {
         return library.aliases[Library.aliasKey(target.text)] ?? library.aliases[Library.aliasKey(target.host)]
     }
 
+    /// An event with the alias it had then, or the host's alias now
+    func withAlias(_ event: StatusEvent) -> StatusEvent {
+        guard event.alias == nil, let alias = alias(for: Target(parsing: event.host)) else { return event }
+        return StatusEvent(id: event.id, date: event.date, host: event.host, alias: alias, kind: event.kind)
+    }
+
     func setAlias(_ name: String, for host: String) {
         let key = Library.aliasKey(host.trimmingCharacters(in: .whitespaces))
         guard !key.isEmpty else { return }
@@ -189,13 +207,16 @@ final class Monitor {
 
     func updateFavorite(_ old: Favorite, name: String, hosts: [String], columns: Int) {
         guard let index = library.favorites.firstIndex(of: old) else { return }
-        library.favorites[index] = Favorite(name: name.trimmingCharacters(in: .whitespaces), hosts: hosts, columns: columns)
+        let name = name.trimmingCharacters(in: .whitespaces)
+        library.favorites[index] = Favorite(name: name, hosts: hosts, columns: columns)
         if settings.startupFavorite == old.name { settings.startupFavorite = name }
+        if favoriteName == old.name { favoriteName = name }
         saveLibrary()
     }
 
     func deleteFavorite(_ favorite: Favorite) {
         library.favorites.removeAll { $0 == favorite }
+        if favoriteName == favorite.name { favoriteName = nil }
         if settings.startupFavorite == favorite.name { settings.startupFavorite = nil }
         saveLibrary()
     }
@@ -210,7 +231,7 @@ final class Monitor {
 
     /// Hosts from the command line win, then the startup setting
     func restore(arguments: [String]) {
-        let fromCommandLine = arguments.filter { !$0.hasPrefix("-") }.compactMap(Target.init(parsing:))
+        let fromCommandLine = Self.hosts(fromArguments: arguments)
         if !fromCommandLine.isEmpty {
             replaceAll(with: fromCommandLine.map(\.text))
             return
@@ -222,9 +243,11 @@ final class Monitor {
                 return
             }
         case .lastSession:
-            if !library.lastHosts.isEmpty {
-                columns = library.lastColumns
-                replaceAll(with: library.lastHosts)
+            // Read both first: setting columns saves the (still empty) session
+            let hosts = library.lastHosts, lastColumns = library.lastColumns
+            if !hosts.isEmpty {
+                columns = lastColumns
+                replaceAll(with: hosts)
                 return
             }
         case .blank:
@@ -234,15 +257,35 @@ final class Monitor {
         for _ in 1..<max(1, settings.blankCount) { add(start: false) }
     }
 
+    /// Hosts from the command line. `-Key value` pairs (Xcode passes some,
+    /// and so can `open --args`) are settings, not hosts.
+    nonisolated static func hosts(fromArguments arguments: [String]) -> [Target] {
+        var hosts: [Target] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument.hasPrefix("-psn_") {
+                index += 1
+            } else if argument.hasPrefix("-") {
+                index += 2
+            } else {
+                if let target = Target(parsing: argument) { hosts.append(target) }
+                index += 1
+            }
+        }
+        return hosts
+    }
+
     // MARK: - History and alerts
 
     private func statusChanged(_ probe: Probe, from old: ProbeStatus, to new: ProbeStatus) {
         guard let target = probe.target else { return }
         switch new {
         case .up where old != .up:
+            // Only a host coming back from down is news. Asked before the up is recorded.
+            let backUp = old == .down || wasDown(target)
             record(.up, for: target)
-            // Only a host coming back from down is news
-            if old == .down || (old == .indeterminate && wasDown(target)) { alert(probe, up: true) }
+            if backUp { alert(probe, up: true) }
         case .down where old != .down:
             record(.down, for: target)
             alert(probe, up: false)
@@ -320,7 +363,10 @@ final class Monitor {
 @MainActor
 final class Alerts {
     private let settings: AppSettings
-    private var askedForPermission = false
+    /// Notifications wait here until macOS says whether they're allowed
+    private var waiting: [UNNotificationRequest] = []
+    private var asking = false
+    private var allowed = false
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -341,14 +387,24 @@ final class Alerts {
         content.title = title
         content.body = body
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        if askedForPermission {
+        if allowed {
             center.add(request)
             return
         }
-        askedForPermission = true
+        waiting.append(request)
+        guard !asking else { return }
+        asking = true
+        // Asked each time until allowed, so turning them on in System Settings works without a restart
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            if granted { center.add(request) }
+            Task { @MainActor in self.decided(granted) }
         }
+    }
+
+    private func decided(_ granted: Bool) {
+        asking = false
+        allowed = granted
+        if granted { waiting.forEach { UNUserNotificationCenter.current().add($0) } }
+        waiting.removeAll()
     }
 
     /// Appends one line per up or down to the log file, if that's on

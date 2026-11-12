@@ -12,7 +12,7 @@ struct HistoryView: View {
 
     private var events: [StatusEvent] {
         let query = search.trimmingCharacters(in: .whitespaces)
-        let filtered = monitor.history.filter { event in
+        let filtered = monitor.history.map(monitor.withAlias).filter { event in
             kinds.contains(event.kind) && (query.isEmpty
                 || event.host.localizedCaseInsensitiveContains(query)
                 || (event.alias?.localizedCaseInsensitiveContains(query) ?? false))

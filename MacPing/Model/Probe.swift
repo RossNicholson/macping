@@ -30,9 +30,11 @@ struct ProbeLine: Identifiable, Equatable, Sendable {
     enum Kind: Sendable { case reply, lost, error, info }
 
     let id: Int
-    let date: Date
+    var date: Date
     let text: String
     let kind: Kind
+    /// The same line again and again, e.g. a name that won't resolve
+    var repeats = 1
 }
 
 /// Running totals for a monitor
@@ -100,6 +102,8 @@ final class Probe: Identifiable {
     /// Called with the old and new status when it changes
     @ObservationIgnored var onStatusChange: ((Probe, ProbeStatus, ProbeStatus) -> Void)?
     @ObservationIgnored private var runner: ProbeRunner?
+    /// Goes up with each start and stop, so a stopped runner's late events are dropped
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var nextLine = 0
     static let maxLines = 300
 
@@ -121,8 +125,13 @@ final class Probe: Identifiable {
         lines.removeAll()
         setStatus(.waiting)
         log(target.isPortCheck ? "Checking port \(target.port!) on \(target.host)" : "Pinging \(target.host)", kind: .info)
+        generation += 1
+        let generation = generation
         let runner = ProbeRunner(target: target, options: options) { [weak self] event in
-            Task { @MainActor [weak self] in self?.handle(event, downAfter: downAfter()) }
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == generation else { return }
+                self.handle(event, downAfter: downAfter())
+            }
         }
         self.runner = runner
         runner.start()
@@ -133,6 +142,7 @@ final class Probe: Identifiable {
         guard let runner else { return }
         runner.cancel()
         self.runner = nil
+        generation += 1
         if record { log("Stopped", kind: .info) }
         setStatus(.inactive)
     }
@@ -145,7 +155,7 @@ final class Probe: Identifiable {
     }
 
     private func handle(_ event: ProbeRunner.Event, downAfter: Int) {
-        guard runner != nil else { return }   // stopped since
+        guard runner != nil else { return }
         switch event {
         case .resolved(let address):
             resolvedAddress = address
@@ -205,6 +215,12 @@ final class Probe: Identifiable {
     }
 
     private func log(_ text: String, kind: ProbeLine.Kind) {
+        // Errors repeat word for word; one line with a count says the same
+        if kind == .error, let last = lines.last, last.kind == .error, last.text == text {
+            lines[lines.count - 1].repeats += 1
+            lines[lines.count - 1].date = Date()
+            return
+        }
         lines.append(ProbeLine(id: nextLine, date: Date(), text: text, kind: kind))
         nextLine += 1
         if lines.count > Self.maxLines { lines.removeFirst(lines.count - Self.maxLines) }
@@ -225,7 +241,7 @@ final class ProbeRunner: @unchecked Sendable {
 
     private let target: Target
     private let options: OptionsBox
-    private let send: @Sendable (Event) -> Void
+    private let output: @Sendable (Event) -> Void
     private let lock = NSLock()
     private var cancelled = false
     /// Names are looked up again now and then, in case they move
@@ -234,10 +250,15 @@ final class ProbeRunner: @unchecked Sendable {
     init(target: Target, options: OptionsBox, send: @escaping @Sendable (Event) -> Void) {
         self.target = target
         self.options = options
-        self.send = send
+        output = send
     }
 
     private var isCancelled: Bool { lock.withLock { cancelled } }
+
+    /// Nothing more once stopped: a check can finish long after Stop
+    private func send(_ event: Event) {
+        if !isCancelled { output(event) }
+    }
 
     func cancel() { lock.withLock { cancelled = true } }
 
@@ -273,22 +294,29 @@ final class ProbeRunner: @unchecked Sendable {
                             send(.resolved(found.text))
                         }
                     } catch {
-                        address = nil
-                        send(.resolveFailed(error.message))
+                        // Once it has an address, a failed look-up (DNS down with
+                        // the network, say) keeps pinging the old one, so an
+                        // outage shows as down, not as an error
+                        if address == nil {
+                            send(.resolveFailed(error.message))
+                        } else {
+                            resolvedAt = started
+                        }
                     }
                 }
                 if let address, let socket {
                     sequence &+= 1
                     let reply = socket.ping(address, sequence: sequence, timeout: options.timeout,
                                             ttl: options.ttl, payloadSize: options.payloadSize)
-                    if isCancelled { return }
                     send(.reply(reply))
                 }
             }
 
-            // Wait out the rest of the interval, checking for a stop now and then
-            let next = started.addingTimeInterval(options.interval)
-            while !isCancelled, Date() < next {
+            // Wait out the rest of the interval, checking for a stop, or a
+            // new interval in Settings, now and then
+            while !isCancelled {
+                let next = started.addingTimeInterval(self.options.value.interval)
+                guard Date() < next else { break }
                 Thread.sleep(forTimeInterval: min(0.1, max(0, next.timeIntervalSinceNow)))
             }
         }

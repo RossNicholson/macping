@@ -49,7 +49,7 @@ MacPing isn't released yet. Until it is, you can [build it from source](#build-f
 - **Alerts.** A notification and a sound when a host goes down or comes back, and an optional log file with a line for each change.
 - **Aliases.** Give hosts friendly names, like "Office router", to show on tiles, in alerts and in the history.
 - **Favourites.** Save a set of hosts, with a column layout, and load it again in one click.
-- **Lots of hosts at once.** Paste a list or drop a text file of hosts on the window. Drag tiles to reorder them. The grid fits the window, or pick a number of columns.
+- **Lots of hosts at once.** Paste a list or drop a text file of hosts on the window. Drag tiles to reorder them, or use a tile's ⋯ menu (also on right-click) for traceroute, an alias, moving or removing it. The grid fits the window, or pick a number of columns.
 - **In the menu bar.** An icon that shows how many hosts are down, and a panel listing them all. Close the window and MacPing keeps pinging up there.
 - **Your way.** Ping interval, timeout, TTL and packet size, keep the window on top, open at login, and start blank, with your last hosts, or with a favourite. Hosts given on the command line are pinged straight away.
 

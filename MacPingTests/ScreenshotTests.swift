@@ -56,7 +56,7 @@ final class ScreenshotTests: XCTestCase {
         let out = try outputFolder("SCREENSHOTS")
         let monitor = demo()
         for dark in [false, true] {
-            try Snapshot.png(SettingsSheet().environment(monitor), size: NSSize(width: 560, height: 640), dark: dark,
+            try Snapshot.png(SettingsView().environment(monitor), size: NSSize(width: 560, height: 640), dark: dark,
                              to: out.appendingPathComponent("settings\(dark ? "-dark" : "").png"))
         }
         try Snapshot.png(HistoryView().environment(monitor), size: NSSize(width: 640, height: 520),

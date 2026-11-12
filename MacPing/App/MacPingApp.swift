@@ -13,7 +13,7 @@ struct MacPingApp: App {
                     Button("About MacPing") { appDelegate.show(.about) }
                 }
                 CommandGroup(replacing: .appSettings) {
-                    Button("Settings…") { appDelegate.show(.settings) }
+                    Button("Settings…") { appDelegate.showSettings() }
                         .keyboardShortcut(",", modifiers: .command)
                 }
                 CommandGroup(replacing: .newItem) {

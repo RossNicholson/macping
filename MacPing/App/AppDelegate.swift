@@ -11,11 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let router = Router()
     private var window: NSWindow?
     private var historyWindow: NSWindow?
+    private var settingsWindow: NSWindow?
     private var tracerouteWindows: [NSWindow] = []
     private var statusBar: StatusBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         router.openHistory = { [weak self] in self?.showHistory() }
+        router.openSettings = { [weak self] in self?.showSettings() }
         router.openTraceroute = { [weak self] host in self?.showTraceroute(host) }
         monitor.settings.onChange = { [weak self] in self?.applySettings() }
 
@@ -76,9 +78,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.delegate = self
         if !window.setFrameUsingName("MainWindow") { window.center() }
         window.setFrameAutosaveName("MainWindow")
-        window.level = monitor.settings.alwaysOnTop ? .floating : .normal
+        window.level = windowLevel
         return window
     }
+
+    /// Keep on top covers every MacPing window, or the others would open behind the main one
+    private var windowLevel: NSWindow.Level { monitor.settings.alwaysOnTop ? .floating : .normal }
 
     func showHistory() {
         NSApp.setActivationPolicy(.regular)
@@ -88,9 +93,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.delegate = self
             if !window.setFrameUsingName("HistoryWindow") { window.center() }
             window.setFrameAutosaveName("HistoryWindow")
+            window.level = windowLevel
             return window
         }()
         historyWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func showSettings() {
+        NSApp.setActivationPolicy(.regular)
+        let window = settingsWindow ?? {
+            let window = Self.window(title: "MacPing Settings", size: NSSize(width: 560, height: 680),
+                                     content: SettingsView().environment(monitor))
+            window.delegate = self
+            window.contentMinSize = NSSize(width: 520, height: 360)
+            if !window.setFrameUsingName("SettingsWindow") { window.center() }
+            window.setFrameAutosaveName("SettingsWindow")
+            window.level = windowLevel
+            return window
+        }()
+        settingsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -103,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                  size: NSSize(width: 560, height: 560),
                                  content: TracerouteView(session: session))
         window.delegate = self
+        window.level = windowLevel
         // Beside the main window if there's room, else centred; more cascade from there
         if let last = tracerouteWindows.last {
             window.setFrameTopLeftPoint(NSPoint(x: last.frame.minX + 28, y: last.frame.maxY - 28))
@@ -136,8 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let closing = notification.object as? NSWindow else { return }
         tracerouteWindows.removeAll { $0 === closing }
         if closing === historyWindow { historyWindow = nil }
+        if closing === settingsWindow { settingsWindow = nil }
         // Back to a menu bar app once no windows are left: no Dock icon
-        let anyLeft = [window, historyWindow].compactMap { $0 }.contains { $0 !== closing && $0.isVisible }
+        let anyLeft = [window, historyWindow, settingsWindow].compactMap { $0 }
+            .contains { $0 !== closing && ($0.isVisible || $0.isMiniaturized) }
             || !tracerouteWindows.isEmpty
         if monitor.settings.showInMenuBar, !anyLeft {
             DispatchQueue.main.async { NSApp.setActivationPolicy(.accessory) }
@@ -147,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Settings
 
     private func applySettings() {
-        window?.level = monitor.settings.alwaysOnTop ? .floating : .normal
+        let level = windowLevel
+        ([window, historyWindow, settingsWindow] + tracerouteWindows).forEach { $0?.level = level }
         if monitor.settings.showInMenuBar {
             if statusBar == nil {
                 statusBar = StatusBarController(monitor: monitor,

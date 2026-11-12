@@ -79,12 +79,11 @@ final class Traceroute: @unchecked Sendable {
                     }
                 }
                 if reached {
-                    names.sync(flags: .barrier) {}
+                    // Names that are still being looked up arrive afterwards
                     event(.finished(reached: hop.reachedTarget))
                     return
                 }
             }
-            names.sync(flags: .barrier) {}
             event(.finished(reached: false))
         }
     }

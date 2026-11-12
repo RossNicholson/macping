@@ -7,12 +7,13 @@ import UniformTypeIdentifiers
 @Observable
 final class Router {
     enum Sheet: String, Identifiable {
-        case addHosts, favorites, aliases, settings, about
+        case addHosts, favorites, aliases, about
         var id: String { rawValue }
     }
 
     var sheet: Sheet?
     @ObservationIgnored var openHistory: () -> Void = {}
+    @ObservationIgnored var openSettings: () -> Void = {}
     @ObservationIgnored var openTraceroute: (String) -> Void = { _ in }
 }
 
@@ -35,7 +36,6 @@ struct MainView: View {
             case .addHosts: AddHostsSheet()
             case .favorites: FavoritesSheet()
             case .aliases: AliasesSheet()
-            case .settings: SettingsSheet()
             case .about: AboutSheet()
             }
         }
@@ -49,7 +49,8 @@ struct MainView: View {
                     }
                 } else if provider.canLoadObject(ofClass: String.self) {
                     _ = provider.loadObject(ofClass: String.self) { text, _ in
-                        guard let text else { return }
+                        // A tile dropped between tiles isn't a list of hosts
+                        guard let text, ProbeTile.draggedID(text) == nil else { return }
                         Task { @MainActor in monitor.addMany(text) }
                     }
                 }
@@ -131,7 +132,7 @@ private struct TopBar: View {
                 router.openTraceroute("")
             }
             HeaderIconButton(symbol: "clock.arrow.circlepath", help: "Status history (⌘Y)") { router.openHistory() }
-            HeaderIconButton(symbol: "gearshape", help: "Settings (⌘,)") { router.sheet = .settings }
+            HeaderIconButton(symbol: "gearshape", help: "Settings (⌘,)") { router.openSettings() }
             HeaderIconButton(symbol: "info", help: "About MacPing") { router.sheet = .about }
         }
         .padding(.horizontal, 18)

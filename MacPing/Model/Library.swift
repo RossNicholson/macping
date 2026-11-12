@@ -73,7 +73,13 @@ enum HistoryExport {
         }
 
         var fileExtension: String { self == .comma ? "csv" : "txt" }
-        var label: String { self == .comma ? "CSV" : rawValue.capitalized }
+        var label: String {
+            switch self {
+            case .comma: return "CSV"
+            case .tab: return "tab-separated text"
+            case .space: return "space-separated text"
+            }
+        }
     }
 
     static func text(_ events: [StatusEvent], delimiter: Delimiter) -> String {

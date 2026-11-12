@@ -10,7 +10,6 @@ struct ProbeTile: View {
     var compact = false
 
     @State private var draft = ""
-    @State private var hovering = false
     @State private var hoveringLog = false
     @State private var editingAlias = false
     @State private var dropTargeted = false
@@ -40,15 +39,22 @@ struct ProbeTile: View {
                 .strokeBorder(dropTargeted ? AppColors.ink : .clear, lineWidth: 2)
         }
         .animation(.easeInOut(duration: 0.25), value: status)
-        .onHover { hovering = $0 }
+        .contextMenu { actions }
         .dropDestination(for: String.self) { items, _ in
-            guard let id = items.first.flatMap(UUID.init(uuidString:)),
-                  let dragged = monitor.probes.first(where: { $0.id == id }) else { return false }
+            guard let id = items.first.flatMap(Self.draggedID) else {
+                // Text dropped on a tile: hosts, as on the rest of the window
+                guard !Target.list(from: items.joined(separator: "\n")).isEmpty else { return false }
+                monitor.addMany(items.joined(separator: "\n"))
+                return true
+            }
+            guard let dragged = monitor.probes.first(where: { $0.id == id }) else { return false }
             withAnimation(.easeInOut(duration: 0.2)) { monitor.move(dragged, before: probe) }
             return true
         } isTargeted: { dropTargeted = $0 }
         .onAppear { draft = probe.input }
         .onChange(of: probe.input) { _, new in if !fieldFocused { draft = new } }
+        // Filled in while the field had focus (a dropped list, say)
+        .onChange(of: probe.isRunning) { draft = probe.input }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(alias ?? probe.target?.text ?? "Empty monitor"), \(status.label)")
     }
@@ -92,7 +98,7 @@ struct ProbeTile: View {
             buttons
         }
         .contentShape(Rectangle())
-        .draggable(probe.id.uuidString) {
+        .draggable(Self.dragPrefix + probe.id.uuidString) {
             Text(alias ?? probe.target?.text ?? "Monitor")
                 .font(.mono(11, weight: .medium))
                 .padding(8)
@@ -102,36 +108,60 @@ struct ProbeTile: View {
 
     private var buttons: some View {
         HStack(spacing: 4) {
-            if probe.isRunning || hovering || probe.target != nil {
-                RoundIconButton(symbol: probe.isRunning ? "stop.fill" : "play.fill", size: 24,
-                                help: probe.isRunning ? "Stop" : "Start") {
-                    if probe.isRunning { monitor.stop(probe) } else { startFromField() }
-                }
-                .disabled(!probe.isRunning && Target(parsing: draft) == nil)
+            RoundIconButton(symbol: probe.isRunning ? "stop.fill" : "play.fill", size: 24,
+                            help: probe.isRunning ? "Stop" : "Start") {
+                if probe.isRunning { monitor.stop(probe) } else { startFromField() }
             }
-            if hovering {
-                if let target = probe.target, !target.isPortCheck {
-                    RoundIconButton(symbol: "point.topleft.down.to.point.bottomright.curvepath", size: 24,
-                                    help: "Traceroute to \(target.host)") {
-                        openTraceroute(target.host)
-                    }
-                }
-                if probe.target != nil {
-                    RoundIconButton(symbol: "tag", size: 24, help: "Alias: a name to show for this host") {
-                        editingAlias = true
-                    }
-                    .popover(isPresented: $editingAlias, arrowEdge: .bottom) {
-                        AliasPopover(host: probe.target?.host ?? "", initial: alias ?? "") { name in
-                            monitor.setAlias(name, for: probe.target?.host ?? "")
-                            editingAlias = false
-                        }
-                    }
-                }
-                RoundIconButton(symbol: "xmark", size: 24, help: "Remove") {
-                    withAnimation(.easeInOut(duration: 0.2)) { monitor.remove(probe) }
+            .disabled(!probe.isRunning && Target(parsing: draft) == nil)
+            Menu { actions } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 24, height: 24)
+                    .background(AppColors.ink.opacity(0.08), in: Circle())
+                    .contentShape(Circle())
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("More")
+            .popover(isPresented: $editingAlias, arrowEdge: .bottom) {
+                AliasPopover(host: probe.target?.host ?? "", initial: alias ?? "") { name in
+                    monitor.setAlias(name, for: probe.target?.host ?? "")
+                    editingAlias = false
                 }
             }
         }
+    }
+
+    /// The tile's menu, from its ⋯ button or a right-click
+    @ViewBuilder private var actions: some View {
+        if let target = probe.target {
+            Button(probe.isRunning ? "Stop" : "Start") { monitor.toggle(probe) }
+            if !target.isPortCheck {
+                Button("Traceroute to \(target.host)") { openTraceroute(target.host) }
+            }
+            Button(alias == nil ? "Add an Alias…" : "Change Alias…") { editingAlias = true }
+            Divider()
+        }
+        let index = monitor.probes.firstIndex { $0.id == probe.id } ?? 0
+        Button("Move Earlier") { withAnimation(.easeInOut(duration: 0.2)) { monitor.move(probe, by: -1) } }
+            .disabled(index == 0)
+        Button("Move Later") { withAnimation(.easeInOut(duration: 0.2)) { monitor.move(probe, by: 1) } }
+            .disabled(index >= monitor.probes.count - 1)
+        Divider()
+        Button("Remove", role: .destructive) {
+            withAnimation(.easeInOut(duration: 0.2)) { monitor.remove(probe) }
+        }
+    }
+
+    /// Tiles are dragged as text with this in front, so the window's own drop
+    /// (a list of hosts) can tell a tile from typed text
+    nonisolated static let dragPrefix = "macping-tile:"
+
+    nonisolated static func draggedID(_ text: String) -> UUID? {
+        guard text.hasPrefix(dragPrefix) else { return nil }
+        return UUID(uuidString: String(text.dropFirst(dragPrefix.count)))
     }
 
     private var subtitle: String {
@@ -232,7 +262,7 @@ private struct LogLine: View {
                 Text(Self.time.string(from: line.date))
                     .opacity(0.55)
             }
-            Text(line.text)
+            Text(line.repeats > 1 ? "\(line.text)  ×\(line.repeats)" : line.text)
                 .fontWeight(line.kind == .lost || line.kind == .error ? .semibold : .regular)
                 .opacity(line.kind == .info ? 0.7 : 1)
                 .lineLimit(1)
