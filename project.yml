@@ -1,0 +1,62 @@
+name: MacPing
+options:
+  bundleIdPrefix: com.rossnicholson
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: YES
+
+packages:
+  HouseStyle:
+    url: https://github.com/RossNicholson/mac-house-style
+    from: 1.3.2
+
+targets:
+  MacPing:
+    type: application
+    platform: macOS
+    sources:
+      - path: MacPing
+    dependencies:
+      - package: HouseStyle
+    info:
+      path: MacPing/Info.plist
+      properties:
+        CFBundleName: MacPing
+        CFBundleDisplayName: MacPing
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSHighResolutionCapable: true
+        LSMinimumSystemVersion: "14.0"
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: "© 2026 Ross Nicholson. MIT licence."
+    settings:
+      base:
+        PRODUCT_NAME: MacPing
+        PRODUCT_BUNDLE_IDENTIFIER: com.rossnicholson.MacPing
+        CODE_SIGN_ENTITLEMENTS: MacPing/MacPing.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          DEVELOPMENT_TEAM: "5HQ5V9NP82"
+          ENABLE_HARDENED_RUNTIME: YES
+    scheme:
+      testTargets:
+        - MacPingTests
+
+  MacPingTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MacPingTests
+    dependencies:
+      - target: MacPing
